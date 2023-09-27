@@ -7,7 +7,12 @@ import (
 	"sync"
 	"time"
 
+	bellatrixapi "github.com/attestantio/go-builder-client/api/bellatrix"
+	capellaapi "github.com/attestantio/go-builder-client/api/capella"
+	apiv1 "github.com/attestantio/go-builder-client/api/v1"
+	"github.com/attestantio/go-eth2-client/spec/bellatrix"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/ethereum/go-ethereum/beacon/engine"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
@@ -16,15 +21,21 @@ import (
 	"github.com/ethereum/go-ethereum/flashbotsextra"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/flashbots/go-boost-utils/bls"
+	"github.com/flashbots/go-boost-utils/ssz"
 	"github.com/flashbots/go-boost-utils/utils"
+	"github.com/holiman/uint256"
 	"golang.org/x/time/rate"
 )
 
 type CliqueBuilder struct {
-	ds                      flashbotsextra.IDatabaseService
-	relay                   IRelay
-	eth                     IEthereumService
+	ds        flashbotsextra.IDatabaseService
+	relay     IRelay
+	eth       IEthereumService
+	blockTime time.Duration
+	// clique assumes centralized sequencer and therefore has only one proposer configuration.
 	proposerPubkey          phase0.BLSPubKey
+	proposerFeeRecipient    bellatrix.ExecutionAddress
+	proposerGasLimit        uint64
 	builderSecretKey        *bls.SecretKey
 	builderPublicKey        phase0.BLSPubKey
 	builderSigningDomain    phase0.Domain
@@ -47,7 +58,10 @@ type CliqueBuilderArgs struct {
 	sk                            *bls.SecretKey
 	ds                            flashbotsextra.IDatabaseService
 	relay                         IRelay
+	blockTime                     time.Duration
 	proposerPubkey                phase0.BLSPubKey
+	proposerFeeRecipient          bellatrix.ExecutionAddress
+	proposerGasLimit              uint64
 	builderSigningDomain          phase0.Domain
 	builderBlockResubmitInterval  time.Duration
 	eth                           IEthereumService
@@ -84,7 +98,9 @@ func NewCliqueBuilder(args CliqueBuilderArgs) (*CliqueBuilder, error) {
 		ds:                            args.ds,
 		relay:                         args.relay,
 		eth:                           args.eth,
-		proposerPubkey:                args.proposerPubkey, // assumes single proposer pubkey
+		proposerPubkey:                args.proposerPubkey,
+		proposerFeeRecipient:          args.proposerFeeRecipient,
+		proposerGasLimit:              args.proposerGasLimit,
 		builderSecretKey:              args.sk,
 		builderPublicKey:              pk,
 		builderSigningDomain:          args.builderSigningDomain,
@@ -101,7 +117,6 @@ func (cb *CliqueBuilder) Start() error {
 	go func() {
 		c := make(chan core.ChainHeadEvent)
 		cb.eth.BlockChain().SubscribeChainHeadEvent(c)
-		currentSlot := uint64(0)
 		for {
 			select {
 			case <-cb.stop:
@@ -113,6 +128,14 @@ func (cb *CliqueBuilder) Start() error {
 	}()
 
 	return cb.relay.Start()
+}
+
+func (cb *CliqueBuilder) getValidatorData() ValidatorData {
+	return ValidatorData{
+		Pubkey:       PubkeyHex(cb.proposerPubkey.String()),
+		FeeRecipient: cb.proposerFeeRecipient,
+		GasLimit:     cb.proposerGasLimit,
+	}
 }
 
 func (cb *CliqueBuilder) onChainHeadEvent(block *types.Block) error {
@@ -145,12 +168,12 @@ func (cb *CliqueBuilder) onChainHeadEvent(block *types.Block) error {
 		GasLimit:              block.GasLimit(),
 	}
 
-	go cb.runBuildingJob(cb.slotCtx, cb.proposerPubkey, attrs)
+	go cb.runBuildingJob(cb.slotCtx, attrs)
 	return nil
 }
 
-func (cb *CliqueBuilder) runBuildingJob(slotCtx context.Context, proposerPubkey phase0.BLSPubKey, attrs *types.BuilderPayloadAttributes) {
-	ctx, cancel := context.WithTimeout(slotCtx, 12*time.Second)
+func (cb *CliqueBuilder) runBuildingJob(slotCtx context.Context, attrs *types.BuilderPayloadAttributes) {
+	ctx, cancel := context.WithTimeout(slotCtx, cb.blockTime)
 	defer cancel()
 
 	// Submission queue for the given payload attributes
@@ -174,7 +197,7 @@ func (cb *CliqueBuilder) runBuildingJob(slotCtx context.Context, proposerPubkey 
 		queueMu.Lock()
 		if queueBestEntry.block.Hash() != queueLastSubmittedHash {
 			err := cb.onSealedBlock(queueBestEntry.block, queueBestEntry.blockValue, queueBestEntry.ordersCloseTime, queueBestEntry.sealedAt,
-				queueBestEntry.commitedBundles, queueBestEntry.allBundles, queueBestEntry.usedSbundles, proposerPubkey, attrs)
+				queueBestEntry.commitedBundles, queueBestEntry.allBundles, queueBestEntry.usedSbundles, attrs)
 
 			if err != nil {
 				log.Error("could not run sealed block hook", "err", err)
@@ -237,10 +260,23 @@ func (cb *CliqueBuilder) runBuildingJob(slotCtx context.Context, proposerPubkey 
 }
 
 func (cb *CliqueBuilder) onSealedBlock(block *types.Block, blockValue *big.Int, ordersClosedAt, sealedAt time.Time,
-	commitedBundles, allBundles []types.SimulatedBundle, usedSbundles []types.UsedSBundle,
-	proposerPubkey phase0.BLSPubKey, attrs *types.BuilderPayloadAttributes) error {
+	commitedBundles, allBundles []types.SimulatedBundle, usedSbundles []types.UsedSBundle, attrs *types.BuilderPayloadAttributes) error {
 	log.Info("submitted block", "slot", attrs.Slot, "value", blockValue.String(), "parent", block.ParentHash,
 		"hash", block.Hash(), "#commitedBundles", len(commitedBundles))
+
+	if cb.eth.Config().IsShanghai(block.Time()) {
+		if err := cb.submitCapellaBlock(block, blockValue, ordersClosedAt, sealedAt, commitedBundles, allBundles, usedSbundles, attrs); err != nil {
+			return err
+		}
+	} else {
+		if err := cb.submitBellatrixBlock(block, blockValue, ordersClosedAt, sealedAt, commitedBundles, allBundles, usedSbundles, attrs); err != nil {
+			return err
+		}
+	}
+
+	log.Info("submitted block", "slot", attrs.Slot, "value", blockValue.String(), "parent", block.ParentHash,
+		"hash", block.Hash(), "#commitedBundles", len(commitedBundles))
+
 	return nil
 }
 
@@ -251,5 +287,108 @@ func (cb *CliqueBuilder) Stop() error {
 
 func (cb *CliqueBuilder) OnPayloadAttribute() error {
 	// Not implemented for clique.
+	return nil
+}
+
+func (cb *CliqueBuilder) submitBellatrixBlock(block *types.Block, blockValue *big.Int, ordersClosedAt, sealedAt time.Time,
+	commitedBundles, allBundles []types.SimulatedBundle, usedSbundles []types.UsedSBundle,
+	attrs *types.BuilderPayloadAttributes) error {
+	executableData := engine.BlockToExecutableData(block, blockValue)
+	payload, err := executableDataToExecutionPayload(executableData.ExecutionPayload)
+	if err != nil {
+		log.Error("could not format execution payload", "err", err)
+		return err
+	}
+
+	value, overflow := uint256.FromBig(blockValue)
+	if overflow {
+		log.Error("could not set block value due to value overflow")
+		return err
+	}
+
+	blockBidMsg := apiv1.BidTrace{
+		Slot:                 attrs.Slot,
+		ParentHash:           payload.ParentHash,
+		BlockHash:            payload.BlockHash,
+		BuilderPubkey:        cb.builderPublicKey,
+		ProposerPubkey:       cb.proposerPubkey,
+		ProposerFeeRecipient: cb.proposerFeeRecipient,
+		GasLimit:             executableData.ExecutionPayload.GasLimit,
+		GasUsed:              executableData.ExecutionPayload.GasUsed,
+		Value:                value,
+	}
+
+	signature, err := ssz.SignMessage(&blockBidMsg, cb.builderSigningDomain, cb.builderSecretKey)
+	if err != nil {
+		log.Error("could not sign builder bid", "err", err)
+		return err
+	}
+
+	blockSubmitReq := bellatrixapi.SubmitBlockRequest{
+		Signature:        signature,
+		Message:          &blockBidMsg,
+		ExecutionPayload: payload,
+	}
+
+	go cb.ds.ConsumeBuiltBlock(block, blockValue, ordersClosedAt, sealedAt, commitedBundles, allBundles, usedSbundles, &blockBidMsg)
+	err = cb.relay.SubmitBlock(&blockSubmitReq, cb.getValidatorData())
+	if err != nil {
+		log.Error("could not submit bellatrix block", "err", err, "#commitedBundles", len(commitedBundles))
+		return err
+	}
+
+	log.Info("submitted bellatrix block", "slot", blockBidMsg.Slot, "value", blockBidMsg.Value.String(), "parent", blockBidMsg.ParentHash, "hash", block.Hash(), "#commitedBundles", len(commitedBundles))
+
+	return nil
+}
+
+func (cb *CliqueBuilder) submitCapellaBlock(block *types.Block, blockValue *big.Int, ordersClosedAt, sealedAt time.Time,
+	commitedBundles, allBundles []types.SimulatedBundle, usedSbundles []types.UsedSBundle,
+	attrs *types.BuilderPayloadAttributes) error {
+	executableData := engine.BlockToExecutableData(block, blockValue)
+	payload, err := executableDataToCapellaExecutionPayload(executableData.ExecutionPayload)
+	if err != nil {
+		log.Error("could not format execution payload", "err", err)
+		return err
+	}
+
+	value, overflow := uint256.FromBig(blockValue)
+	if overflow {
+		log.Error("could not set block value due to value overflow")
+		return err
+	}
+
+	blockBidMsg := apiv1.BidTrace{
+		Slot:                 attrs.Slot,
+		ParentHash:           payload.ParentHash,
+		BlockHash:            payload.BlockHash,
+		BuilderPubkey:        cb.builderPublicKey,
+		ProposerPubkey:       cb.proposerPubkey,
+		ProposerFeeRecipient: cb.proposerFeeRecipient,
+		GasLimit:             executableData.ExecutionPayload.GasLimit,
+		GasUsed:              executableData.ExecutionPayload.GasUsed,
+		Value:                value,
+	}
+
+	signature, err := ssz.SignMessage(&blockBidMsg, cb.builderSigningDomain, cb.builderSecretKey)
+	if err != nil {
+		log.Error("could not sign builder bid", "err", err)
+		return err
+	}
+
+	blockSubmitReq := capellaapi.SubmitBlockRequest{
+		Signature:        signature,
+		Message:          &blockBidMsg,
+		ExecutionPayload: payload,
+	}
+
+	go cb.ds.ConsumeBuiltBlock(block, blockValue, ordersClosedAt, sealedAt, commitedBundles, allBundles, usedSbundles, &blockBidMsg)
+	err = cb.relay.SubmitBlockCapella(&blockSubmitReq, cb.getValidatorData())
+	if err != nil {
+		log.Error("could not submit capella block", "err", err, "#commitedBundles", len(commitedBundles))
+		return err
+	}
+
+	log.Info("submitted capella block", "slot", blockBidMsg.Slot, "value", blockBidMsg.Value.String(), "parent", blockBidMsg.ParentHash, "hash", block.Hash(), "#commitedBundles", len(commitedBundles))
 	return nil
 }
