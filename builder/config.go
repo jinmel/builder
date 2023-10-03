@@ -11,6 +11,9 @@ type Config struct {
 	DisableBundleFetcher             bool          `toml:",omitempty"`
 	DryRun                           bool          `toml:",omitempty"`
 	IgnoreLatePayloadAttributes      bool          `toml:",omitempty"`
+	ProposerPubkey                   string        `toml:",omitempty"`
+	ProposerSigningDomain            string        `toml:",omitempty"`
+	ProposerGasLimit                 uint64        `toml:",omitempty"`
 	BuilderSecretKey                 string        `toml:",omitempty"`
 	RelaySecretKey                   string        `toml:",omitempty"`
 	ListenAddr                       string        `toml:",omitempty"`

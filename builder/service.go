@@ -21,6 +21,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-boost-utils/ssz"
+	"github.com/flashbots/go-boost-utils/utils"
 	"github.com/flashbots/go-utils/httplogger"
 	"github.com/gorilla/mux"
 	"golang.org/x/time/rate"
@@ -280,19 +281,22 @@ func Register(stack *node.Node, backend *eth.Ethereum, cfg *Config) error {
 		return errors.New("incorrect builder API secret key provided")
 	}
 
-	builderArgs := BuilderArgs{
+	proposerPubkey, err := hexutil.Decode(cfg.ProposerPubkey)
+	if err != nil {
+		return errors.New("incorrect proposer public key provided")
+	}
+
+	proposerPk, err := bls.PublicKeyFromBytes(proposerPubkey)
+
+	builderArgs := CliqueBuilderArgs{
 		sk:                            builderSk,
 		ds:                            ds,
-		dryRun:                        cfg.DryRun,
 		eth:                           ethereumService,
 		relay:                         relay,
+		proposerPubkey:                utils.BlsPublicKeyToPublicKey(proposerPk),
 		builderSigningDomain:          builderSigningDomain,
 		builderBlockResubmitInterval:  builderRateLimitInterval,
 		submissionOffsetFromEndOfSlot: submissionOffset,
-		discardRevertibleTxOnErr:      cfg.DiscardRevertibleTxOnErr,
-		ignoreLatePayloadAttributes:   cfg.IgnoreLatePayloadAttributes,
-		validator:                     validator,
-		beaconClient:                  beaconClient,
 		limiter:                       limiter,
 	}
 
