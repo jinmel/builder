@@ -9,6 +9,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/flashbots/go-boost-utils/bls"
+	"github.com/flashbots/go-boost-utils/utils"
 )
 
 var errHTTPErrorResponse = errors.New("HTTP error response")
@@ -116,4 +121,22 @@ func SendHTTPRequest(ctx context.Context, client http.Client, method, url string
 	}
 
 	return resp.StatusCode, nil
+}
+
+func publicKeyFromHex(pubKeyHex string) (phase0.BLSPubKey, error) {
+	pubKey, err := hexutil.Decode(pubKeyHex)
+	if err != nil {
+		return phase0.BLSPubKey{}, err
+	}
+
+	blsPubkey, err := bls.PublicKeyFromBytes(pubKey)
+	if err != nil {
+		return phase0.BLSPubKey{}, err
+	}
+
+	ret, err := utils.BlsPublicKeyToPublicKey(blsPubkey)
+	if err != nil {
+		return phase0.BLSPubKey{}, err
+	}
+	return ret, nil
 }

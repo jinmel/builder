@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
+	blockvalidation "github.com/ethereum/go-ethereum/eth/block-validation"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/flashbotsextra"
 	"github.com/ethereum/go-ethereum/log"
@@ -67,6 +68,7 @@ type CliqueBuilderArgs struct {
 	eth                           IEthereumService
 	limiter                       *rate.Limiter
 	submissionOffsetFromEndOfSlot time.Duration
+	validator                     *blockvalidation.BlockValidationAPI
 }
 
 func NewCliqueBuilder(args CliqueBuilderArgs) (*CliqueBuilder, error) {
@@ -285,7 +287,7 @@ func (cb *CliqueBuilder) Stop() error {
 	return nil
 }
 
-func (cb *CliqueBuilder) OnPayloadAttribute() error {
+func (cb *CliqueBuilder) OnPayloadAttribute(attrs *types.BuilderPayloadAttributes) error {
 	// Not implemented for clique.
 	return nil
 }
