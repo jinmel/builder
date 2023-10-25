@@ -285,11 +285,17 @@ func Register(stack *node.Node, backend *eth.Ethereum, cfg *Config) error {
 
 	proposerPubKey, err := publicKeyFromHex(cfg.ProposerPubkey)
 
+	blockTime, err := time.ParseDuration("12s")
+	if err != nil {
+		return fmt.Errorf("failed to parse block time: %w", err)
+	}
+
 	builderArgs := CliqueBuilderArgs{
 		sk:                            builderSk,
 		ds:                            ds,
 		eth:                           ethereumService,
 		relay:                         relay,
+		blockTime:                     blockTime,
 		proposerPubkey:                proposerPubKey,
 		builderSigningDomain:          builderSigningDomain,
 		builderBlockResubmitInterval:  builderRateLimitInterval,
