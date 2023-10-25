@@ -141,6 +141,7 @@ func (cb *CliqueBuilder) getValidatorData() ValidatorData {
 }
 
 func (cb *CliqueBuilder) onChainHeadEvent(block *types.Block) error {
+	log.Info("Received chain head event", "block", block)
 	if block == nil {
 		return nil
 	}
@@ -213,7 +214,8 @@ func (cb *CliqueBuilder) runBuildingJob(slotCtx context.Context, attrs *types.Bu
 	// Avoid submitting early into a given slot. For example if slots have 12 second interval, submissions should
 	// not begin until 8 seconds into the slot.
 	slotTime := time.Unix(int64(attrs.Timestamp), 0).UTC()
-	slotSubmitStartTime := slotTime.Add(-cb.submissionOffsetFromEndOfSlot)
+	// slotSubmitStartTime := slotTime.Add(-cb.submissionOffsetFromEndOfSlot)
+	slotSubmitStartTime := slotTime
 
 	// Empties queue, submits the best block for current job with rate limit (global for all jobs)
 	go runResubmitLoop(ctx, cb.limiter, queueSignal, submitBestBlock, slotSubmitStartTime)
