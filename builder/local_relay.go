@@ -318,6 +318,13 @@ func (r *LocalRelay) handleGetBlock(w http.ResponseWriter, req *http.Request) {
 	bestPayload := r.bestPayload
 	r.bestDataLock.Unlock()
 
+	log.Info("getting best blocks and headers", "header", bestHeader, "block", bestPayload)
+
+	if bestHeader == nil || bestPayload == nil {
+		respondError(w, http.StatusBadRequest, "no payloads")
+		return
+	}
+
 	if bestHeader.BlockNumber != uint64(slot) {
 		respondError(w, http.StatusBadRequest, "incorrect slot")
 		return
@@ -325,11 +332,6 @@ func (r *LocalRelay) handleGetBlock(w http.ResponseWriter, req *http.Request) {
 
 	if bestHeader == nil || bestHeader.ParentHash.String() != parentHashHex {
 		respondError(w, http.StatusBadRequest, "unknown payload")
-		return
-	}
-
-	if bestHeader == nil || bestPayload == nil {
-		respondError(w, http.StatusInternalServerError, "no payloads")
 		return
 	}
 

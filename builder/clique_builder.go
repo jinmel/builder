@@ -157,13 +157,13 @@ func (cb *CliqueBuilder) onChainHeadEvent(block *types.Block) error {
 		cb.slotCtxCancel()
 	}
 
-	slotCtx, slotCtxCancel := context.WithTimeout(context.Background(), 6*time.Second)
+	slotCtx, slotCtxCancel := context.WithTimeout(context.Background(), 12*time.Second)
 	cb.slotBlock = block
 	cb.slotCtx = slotCtx
 	cb.slotCtxCancel = slotCtxCancel
 
 	attrs := &types.BuilderPayloadAttributes{
-		Timestamp:             hexutil.Uint64(block.Header().Time),
+		Timestamp:             hexutil.Uint64(block.Header().Time) + hexutil.Uint64(12),
 		Random:                common.Hash{},    // unused
 		SuggestedFeeRecipient: common.Address{}, // unused
 		Slot:                  block.NumberU64() + 1,
@@ -213,9 +213,9 @@ func (cb *CliqueBuilder) runBuildingJob(slotCtx context.Context, attrs *types.Bu
 	}
 
 	// In clique the slot time is the end of the blocktime. We add blocktime to the latest block.
-	slotTime := time.Unix(int64(attrs.Timestamp), 0).UTC().Add(cb.blockTime)
+	slotTime := time.Unix(int64(attrs.Timestamp), 0).UTC()
 	slotSubmitStartTime := slotTime.Add(-cb.submissionOffsetFromEndOfSlot)
-	log.Info("current time", "time", time.Now(), "slotTime", slotTime, "slotSubmitStartTime", slotSubmitStartTime, "block time", cb.blockTime)
+	log.Info("current time", "time", time.Now(), "slotTime", slotTime, "slotSubmitStartTime", slotSubmitStartTime, "block time", cb.blockTime, "offset", cb.submissionOffsetFromEndOfSlot)
 
 	// Empties queue, submits the best block for current job with rate limit (global for all jobs)
 	go runResubmitLoop(ctx, cb.limiter, queueSignal, submitBestBlock, slotSubmitStartTime)
