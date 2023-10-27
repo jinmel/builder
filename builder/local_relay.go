@@ -304,7 +304,6 @@ func (r *LocalRelay) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 
 func (r *LocalRelay) handleGetBlock(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
-	log.Info("get block requested", "vars", vars)
 	slot, err := strconv.Atoi(vars["slot"])
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "incorrect slot")
@@ -317,8 +316,6 @@ func (r *LocalRelay) handleGetBlock(w http.ResponseWriter, req *http.Request) {
 	bestHeader := r.bestHeader
 	bestPayload := r.bestPayload
 	r.bestDataLock.Unlock()
-
-	log.Info("getting best blocks and headers", "header", bestHeader, "block", bestPayload)
 
 	if bestHeader == nil || bestPayload == nil {
 		respondError(w, http.StatusBadRequest, "no payloads")

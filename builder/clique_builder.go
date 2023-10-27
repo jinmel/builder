@@ -212,11 +212,8 @@ func (cb *CliqueBuilder) runBuildingJob(slotCtx context.Context, attrs *types.Bu
 		queueMu.Unlock()
 	}
 
-	// In clique the slot time is the end of the blocktime. We add blocktime to the latest block.
 	slotTime := time.Unix(int64(attrs.Timestamp), 0).UTC()
 	slotSubmitStartTime := slotTime.Add(-cb.submissionOffsetFromEndOfSlot)
-	log.Info("current time", "time", time.Now(), "slotTime", slotTime, "slotSubmitStartTime", slotSubmitStartTime, "block time", cb.blockTime, "offset", cb.submissionOffsetFromEndOfSlot)
-
 	// Empties queue, submits the best block for current job with rate limit (global for all jobs)
 	go runResubmitLoop(ctx, cb.limiter, queueSignal, submitBestBlock, slotSubmitStartTime)
 
