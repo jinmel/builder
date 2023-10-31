@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/beacon/engine"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth"
 	"github.com/ethereum/go-ethereum/log"
@@ -17,6 +18,7 @@ import (
 type IEthereumService interface {
 	BuildBlock(attrs *types.BuilderPayloadAttributes, sealedBlockCallback miner.BlockHookFn) error
 	GetBlockByHash(hash common.Hash) *types.Block
+	BlockChain() *core.BlockChain
 	Config() *params.ChainConfig
 	Synced() bool
 }
@@ -41,6 +43,8 @@ func (t *testEthereumService) GetBlockByHash(hash common.Hash) *types.Block { re
 func (t *testEthereumService) Config() *params.ChainConfig { return params.TestChainConfig }
 
 func (t *testEthereumService) Synced() bool { return t.synced }
+
+func (t *testEthereumService) BlockChain() *core.BlockChain { return nil }
 
 type EthereumService struct {
 	eth *eth.Ethereum
@@ -101,4 +105,8 @@ func (s *EthereumService) Config() *params.ChainConfig {
 
 func (s *EthereumService) Synced() bool {
 	return s.eth.Synced()
+}
+
+func (s *EthereumService) BlockChain() *core.BlockChain {
+	return s.eth.BlockChain()
 }

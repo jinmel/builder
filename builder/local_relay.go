@@ -24,6 +24,7 @@ import (
 	bellatrixutil "github.com/attestantio/go-eth2-client/util/bellatrix"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/fatih/color"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-boost-utils/ssz"
 	"github.com/flashbots/go-boost-utils/utils"
@@ -297,6 +298,55 @@ func (r *LocalRelay) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
+		respondError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+}
+
+func (r *LocalRelay) handleGetBlock(w http.ResponseWriter, req *http.Request) {
+	red := color.New(color.FgRed).PrintlnFunc()
+	green := color.New(color.FgGreen).PrintlnFunc()
+	red("\x1b[31m Received GetBlock() request from sequencer \x1b[0m")
+	vars := mux.Vars(req)
+	slot, err := strconv.Atoi(vars["slot"])
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "incorrect slot")
+		return
+	}
+	parentHashHex := vars["parent_hash"]
+	// TODO: check pubkey from proposer.
+	// pubkeyHex := PubkeyHex(strings.ToLower(vars["pubkey"]))
+	r.bestDataLock.Lock()
+	bestHeader := r.bestHeader
+	bestPayload := r.bestPayload
+	r.bestDataLock.Unlock()
+
+	if bestHeader == nil || bestPayload == nil {
+		respondError(w, http.StatusBadRequest, "no payloads")
+		return
+	}
+
+	if bestHeader.BlockNumber != uint64(slot) {
+		respondError(w, http.StatusBadRequest, "incorrect slot")
+		return
+	}
+
+	if bestHeader == nil || bestHeader.ParentHash.String() != parentHashHex {
+		respondError(w, http.StatusBadRequest, "unknown payload")
+		return
+	}
+
+	response := &api.VersionedExecutionPayload{
+		Version:   consensusspec.DataVersionBellatrix,
+		Bellatrix: bestPayload,
+	}
+
+	green("\x1b[31m sending block \u001b[0m block %s payload %s", bestPayload.BlockHash.String(), bestPayload.String())
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		respondError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}

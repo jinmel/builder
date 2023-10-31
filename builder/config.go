@@ -11,6 +11,9 @@ type Config struct {
 	DisableBundleFetcher             bool          `toml:",omitempty"`
 	DryRun                           bool          `toml:",omitempty"`
 	IgnoreLatePayloadAttributes      bool          `toml:",omitempty"`
+	ProposerPubkey                   string        `toml:",omitempty"`
+	ProposerSigningDomain            string        `toml:",omitempty"`
+	ProposerGasLimit                 uint64        `toml:",omitempty"`
 	BuilderSecretKey                 string        `toml:",omitempty"`
 	RelaySecretKey                   string        `toml:",omitempty"`
 	ListenAddr                       string        `toml:",omitempty"`
@@ -46,7 +49,7 @@ var DefaultConfig = Config{
 	GenesisForkVersion:            "0x00000000",
 	BellatrixForkVersion:          "0x02000000",
 	GenesisValidatorsRoot:         "0x0000000000000000000000000000000000000000000000000000000000000000",
-	BeaconEndpoints:               []string{"http://127.0.0.1:5052"},
+	BeaconEndpoints:               []string{},
 	RemoteRelayEndpoint:           "",
 	SecondaryRemoteRelayEndpoints: nil,
 	ValidationBlocklist:           "",
