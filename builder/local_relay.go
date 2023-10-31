@@ -24,6 +24,7 @@ import (
 	bellatrixutil "github.com/attestantio/go-eth2-client/util/bellatrix"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/fatih/color"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-boost-utils/ssz"
 	"github.com/flashbots/go-boost-utils/utils"
@@ -303,6 +304,9 @@ func (r *LocalRelay) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *LocalRelay) handleGetBlock(w http.ResponseWriter, req *http.Request) {
+	red := color.New(color.FgRed).PrintlnFunc()
+	green := color.New(color.FgGreen).PrintlnFunc()
+	red("\x1b[31m Received GetBlock() request from sequencer \x1b[0m")
 	vars := mux.Vars(req)
 	slot, err := strconv.Atoi(vars["slot"])
 	if err != nil {
@@ -337,7 +341,7 @@ func (r *LocalRelay) handleGetBlock(w http.ResponseWriter, req *http.Request) {
 		Bellatrix: bestPayload,
 	}
 
-	log.Info("sending block", "block", bestPayload.BlockHash.String(), "payload", bestPayload)
+	green("\x1b[31m sending block \u001b[0m block %s payload %s", bestPayload.BlockHash.String(), bestPayload.String())
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
